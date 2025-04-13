@@ -134,7 +134,7 @@ void print_wakeup_reason()
 }
 
 // Helper function to parse ISO datetime string
-time_t parse_iso_datetime(const char *iso_string)
+tm *parse_iso_datetime(const char *iso_string)
 {
   struct tm tm = {0};
   char *ret;
@@ -145,11 +145,12 @@ time_t parse_iso_datetime(const char *iso_string)
   if (ret == NULL)
   {
     Serial.println("Failed to parse datetime");
-    return (time_t)-1;
+    return NULL;
   }
 
   // Convert to time_t (UTC) and adjust for local timezone (UTC+2)
-  return mktime(&tm) + (2 * 3600);
+  time_t time = mktime(&tm) + (2 * 3600);
+  return localtime(&time);
 }
 
 bool try_connect_wifi(const char *ssid, const char *password, int maxAttempts = 5)
@@ -174,7 +175,7 @@ bool try_connect_wifi(const char *ssid, const char *password, int maxAttempts = 
   return WiFi.status() == WL_CONNECTED;
 }
 
-void connectWiFi()
+void connect_WiFi()
 {
   if (!try_connect_wifi(WIFI_SSID_1, WIFI_PASSWORD_1, 2))
   {
@@ -190,7 +191,7 @@ void connectWiFi()
   Serial.printf("Connected to WiFi with IP: %s\n", WiFi.localIP().toString().c_str());
 }
 
-void disconnectWiFi()
+void disconnect_WiFi()
 {
   Serial.println("Disconnecting from WiFi...");
   WiFi.disconnect(true);
@@ -198,7 +199,7 @@ void disconnectWiFi()
   Serial.println("Disconnected from WiFi.");
 }
 
-bool fetchData(JsonDocument &doc, const char *url, const char *payload = nullptr, int maxRetries = 3)
+bool fetch_data(JsonDocument &doc, const char *url, const char *payload = nullptr, int maxRetries = 3)
 {
   HTTPClient http;
   http.useHTTP10(true);
@@ -230,16 +231,24 @@ bool fetchData(JsonDocument &doc, const char *url, const char *payload = nullptr
 
 void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &battery_status)
 {
-  String render = "";
-  char buffer[20]; // Format: "YYYY-MM-DD    HH:MM" (16 chars + null terminator)
-  time_t time = parse_iso_datetime(weather_doc["currentTime"].as<String>().c_str());
-  strftime(buffer, sizeof(buffer), "%Y-%m-%d    %H:%M", localtime(&time));
+  char time[20]; // Format: "YYYY-MM-DD    HH:MM" (19 chars + null terminator)
+  struct tm *local_time = parse_iso_datetime(weather_doc["currentTime"].as<String>().c_str());
 
-  render += String(buffer) + "\n\n";
+  // TODO: Check if local_time is NULL before using it
+  // TODO: Set wakeup timer in setup method
+  if (local_time->tm_hour >= 0 && local_time->tm_hour < 8)
+  {
+    esp_sleep_enable_timer_wakeup(28800 * uS_TO_S_FACTOR); // Sleep for 8 hours
+  }
+
+  strftime(time, sizeof(time), "%Y-%m-%d    %H:%M", local_time);
+
+  String render = String(time) + "\n\n";
 
   render += aqi_doc["indexes"][0]["displayName"].as<String>() + ":  ";
   render += aqi_doc["indexes"][0]["aqiDisplay"].as<String>() + "\n";
-  render += aqi_doc["indexes"][0]["category"].as<String>() + "\n";
+
+  render += aqi_doc["indexes"][0]["category"].as<String>().substring(0, aqi_doc["indexes"][0]["category"].as<String>().indexOf(" air quality")) + "\n";
 
   render += aqi_doc["pollutants"][3]["displayName"].as<String>() + ":  ";
   render += String(aqi_doc["pollutants"][3]["concentration"]["value"].as<int>()) + " ug/m3\n";
@@ -254,9 +263,9 @@ void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &bat
   render += "Humidity  " + String(weather_doc["relativeHumidity"].as<int>()) + "%\n";
   render += "Wind  " + String(weather_doc["wind"]["speed"]["value"].as<int>()) + " km/h  ";
   render += String(weather_doc["windChill"]["degrees"].as<float>(), 1) + "C\n";
-  render += "Cloud cover  " + String(weather_doc["cloudCover"].as<int>()) + "%\n";
-  render += "Boot " + String(bootCount);
-  render += "   Batt. " + String(battery_status.voltage, 2) + "V";
+  render += "Cloud cover  " + String(weather_doc["cloudCover"].as<int>()) + "%\n\n";
+  render += "Batt. " + String(battery_status.voltage, 2) + "V    ";
+  render += "B:" + String(bootCount);
 
   printText(render.c_str());
 }
@@ -283,11 +292,11 @@ void setup()
   // display.setRotation(1); // rotate to landscape mode
   Serial.println("Display initializing done");
 
-  connectWiFi();
+  connect_WiFi();
 
   JsonDocument aqi_doc;     // https://developers.google.com/maps/documentation/air-quality/current-conditions
   JsonDocument weather_doc; // https://developers.google.com/maps/documentation/weather/current-conditions
-  if (!(fetchData(aqi_doc, AQI_URL, AQI_REQUEST) && fetchData(weather_doc, WEATHER_URL)))
+  if (!(fetch_data(aqi_doc, AQI_URL, AQI_REQUEST) && fetch_data(weather_doc, WEATHER_URL)))
   {
     Serial.println(aqi_doc["error"].as<String>() + "\n" + weather_doc["error"].as<String>());
     printText((aqi_doc["error"].as<String>() + "\n" + weather_doc["error"].as<String>()).c_str());
@@ -301,10 +310,7 @@ void setup()
 
   aqi_doc.clear();
   weather_doc.clear();
-
-  disconnectWiFi();
-
-  // showBitmapExample();
+  disconnect_WiFi();
   display.powerDown();
 
   // https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/sleep_modes.html
