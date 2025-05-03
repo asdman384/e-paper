@@ -12,7 +12,14 @@
 #include <ArduinoJSON.h> // https://arduinojson.org/v7/how-to/use-arduinojson-with-httpclient/
 
 // Font for the display
-#include <ib8x16u.h> // https://github.com/farsil/ibmfonts/tree/master
+#include <iv8x16u.h>
+#include <Fonts/Org_01.h>
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+#include <Fonts/FreeSansBold18pt7b.h>
+
 #include <images.h>
 #include <config.h>
 
@@ -96,7 +103,7 @@ void printText(const char *text, bool update = true)
   //   display.drawPixel(249, y, GxEPD_BLACK);
   // }
 
-  display.setFont(&ib8x16u);
+  display.setFont(&iv8x16u);
   display.setCursor(0, 14);
   display.println(text);
   if (update)
@@ -185,6 +192,7 @@ void connect_WiFi()
       printText("Failed to connect\nafter all attempts", false);
       display.drawBitmap(offline, 0, 80, 122, 122, GxEPD_BLACK, GxEPD::bm_invert);
       display.update();
+      display.powerDown();
       esp_deep_sleep_start();
     }
   }
@@ -229,9 +237,26 @@ bool fetch_data(JsonDocument &doc, const char *url, const char *payload = nullpt
   return false;
 }
 
+void render_pollutant(int y, JsonArray pollutants, int index)
+{
+  display.setCursor(3, y);
+  display.print(pollutants[index]["displayName"].as<String>() + ":");
+  display.setCursor(40, y);
+  display.print(pollutants[index]["concentration"]["value"].as<int>());
+  display.setCursor(60, y);
+
+  String units = pollutants[index]["concentration"]["units"].as<String>();
+  display.print(
+      units == "MICROGRAMS_PER_CUBIC_METER"   ? "ug/m3"
+      : units == "PARTS_PER_BILLION"          ? "ppb"
+      : units == "PARTS_PER_MILLION"          ? "ppm"
+      : units == "MILLIGRAMS_PER_CUBIC_METER" ? "mg/m3"
+                                              : units);
+}
+
 void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &battery_status)
 {
-  char time[20]; // Format: "YYYY-MM-DD    HH:MM" (19 chars + null terminator)
+  char time[15]; // Format: "Apr 30   HH:MM" (12 chars + null terminator)
   struct tm *local_time = parse_iso_datetime(weather_doc["currentTime"].as<String>().c_str());
 
   // TODO: Check if local_time is NULL before using it
@@ -241,33 +266,119 @@ void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &bat
     esp_sleep_enable_timer_wakeup(28800 * uS_TO_S_FACTOR); // Sleep for 8 hours
   }
 
-  strftime(time, sizeof(time), "%Y-%m-%d    %H:%M", local_time);
+  strftime(time, sizeof(time), "%b %d   %H:%M", local_time);
 
-  String render = String(time) + "\n\n";
+  display.setTextColor(GxEPD_BLACK);
 
-  render += aqi_doc["indexes"][0]["displayName"].as<String>() + ":  ";
-  render += aqi_doc["indexes"][0]["aqiDisplay"].as<String>() + "\n";
+  // time
+  display.setFont(&FreeSansBold9pt7b);
+  display.setCursor(0, 12);
+  display.print(time);
 
-  render += aqi_doc["indexes"][0]["category"].as<String>().substring(0, aqi_doc["indexes"][0]["category"].as<String>().indexOf(" air quality")) + "\n";
+  String condition = weather_doc["weatherCondition"]["type"].as<String>();
+  boolean isDaytime = weather_doc["isDaytime"].as<boolean>();
+  if (condition == "CLEAR" || condition == "MOSTLY_CLEAR" || condition == "PARTLY_CLOUDY")
+  {
+    display.drawBitmap(isDaytime ? clear : clear_n, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  else if (condition == "MOSTLY_CLOUDY")
+  {
+    display.drawBitmap(isDaytime ? mostly_cloudy : mostly_cloudy_n, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  // else if (condition == "Rain")
+  // {
+  //   display.drawBitmap(rain, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  // }
+  // else if (condition == "Snow")
+  // {
+  //   display.drawBitmap(snow, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  // }
+  // else if (condition == "Fog")
+  // {
+  //   display.drawBitmap(foggy, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  // }
+  else
+    // default to clear weather icon
+    display.drawBitmap(unknown, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
 
-  render += aqi_doc["pollutants"][3]["displayName"].as<String>() + ":  ";
-  render += String(aqi_doc["pollutants"][3]["concentration"]["value"].as<int>()) + " ug/m3\n";
+  // temperature
+  int temp = ceil(weather_doc["temperature"]["degrees"].as<float>());
+  display.setFont(&FreeSansBold18pt7b);
+  display.setCursor(52, 47);
+  display.print(temp > 0 ? "+" : "-");
+  display.setCursor(72, 47);
+  display.print(temp);
 
-  render += aqi_doc["pollutants"][4]["displayName"].as<String>() + ":  ";
-  render += String(aqi_doc["pollutants"][4]["concentration"]["value"].as<int>()) + " ug/m3";
+  // feels Like Temperature
+  float feel = weather_doc["feelsLikeTemperature"]["degrees"].as<float>();
+  display.setFont(&FreeSans12pt7b);
+  display.setCursor(56, 70);
+  display.print(feel > 0 ? "+" + String(feel, 1) : feel);
 
-  render += "\n\n";
+  // humidity
+  display.drawBitmap(humidity, 0, 85, 20, 20, GxEPD_BLACK, GxEPD::bm_invert);
+  display.setFont(&FreeSans12pt7b);
+  display.setCursor(22, 102);
+  display.print(weather_doc["relativeHumidity"].as<int>() % 99);
+  display.setFont(&iv8x16u);
+  display.print("%");
 
-  render += "It's  " + String(weather_doc["temperature"]["degrees"].as<float>(), 1) + "C\n";
-  render += "Feels like  " + String(weather_doc["feelsLikeTemperature"]["degrees"].as<float>(), 1) + "C\n";
-  render += "Humidity  " + String(weather_doc["relativeHumidity"].as<int>()) + "%\n";
-  render += "Wind  " + String(weather_doc["wind"]["speed"]["value"].as<int>()) + " km/h  ";
-  render += String(weather_doc["windChill"]["degrees"].as<float>(), 1) + "C\n";
-  render += "Cloud cover  " + String(weather_doc["cloudCover"].as<int>()) + "%\n\n";
-  render += "Batt. " + String(battery_status.voltage, 2) + "V    ";
-  render += "B:" + String(bootCount);
+  // cloud cover
+  display.drawBitmap(cloud_cover, 61, 87, 20, 20, GxEPD_BLACK, GxEPD::bm_invert);
+  display.setFont(&FreeSans12pt7b);
+  display.setCursor(85, 102);
+  display.print(weather_doc["cloudCover"].as<int>());
+  display.setFont(&iv8x16u);
+  display.print("%");
 
-  printText(render.c_str());
+  // wind
+  display.drawBitmap(wind, 0, 109, 20, 20, GxEPD_BLACK, GxEPD::bm_invert);
+  display.setFont(&FreeSans12pt7b);
+  display.setCursor(22, 125);
+  display.print(weather_doc["wind"]["speed"]["value"].as<int>());
+  display.setFont(&iv8x16u);
+  // display.print("km/h");
+
+  // probability of precipitation
+  int percent = weather_doc["precipitation"]["probability"]["percent"].as<int>();
+  String type = weather_doc["precipitation"]["probability"]["type"].as<String>();
+  if (type == "RAIN")
+  {
+    display.drawBitmap(probability_rain, 61, 109, 20, 20, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  display.setFont(&FreeSans12pt7b);
+  display.setCursor(85, 125);
+  display.print(percent);
+  display.setFont(&iv8x16u);
+  display.print("%");
+
+  // air quality index
+  display.setFont(&FreeSans9pt7b);
+  display.setCursor(0, 155);
+  display.print("Air Quality: ");
+  display.setFont(&FreeSansBold9pt7b);
+  display.print(aqi_doc["indexes"][0]["aqiDisplay"].as<String>());
+
+  display.setFont(&FreeSansBold12pt7b);
+  display.setCursor(0, 178);
+  String category = aqi_doc["indexes"][0]["category"].as<String>().substring(0, aqi_doc["indexes"][0]["category"].as<String>().indexOf(" air quality"));
+  display.print(category);
+
+  // pollutants
+  display.setFont(&Org_01);
+  render_pollutant(190, aqi_doc["pollutants"], 3);
+  render_pollutant(197, aqi_doc["pollutants"], 4);
+  render_pollutant(204, aqi_doc["pollutants"], 2);
+  render_pollutant(211, aqi_doc["pollutants"], 0);
+  render_pollutant(218, aqi_doc["pollutants"], 5);
+  render_pollutant(225, aqi_doc["pollutants"], 1);
+
+  // battery status
+  display.setCursor(80, 248);
+  display.print("B: " + String(battery_status.voltage, 2) + "V    ");
+
+  display.update();
+  display.powerDown();
 }
 
 void setup()
