@@ -277,6 +277,7 @@ void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &bat
 
   String condition = weather_doc["weatherCondition"]["type"].as<String>();
   boolean isDaytime = weather_doc["isDaytime"].as<boolean>();
+  // https://developers.google.com/maps/documentation/weather/weather-condition-icons
   if (condition == "CLEAR" || condition == "MOSTLY_CLEAR" || condition == "PARTLY_CLOUDY")
   {
     display.drawBitmap(isDaytime ? clear : clear_n, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
@@ -285,21 +286,40 @@ void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &bat
   {
     display.drawBitmap(isDaytime ? mostly_cloudy : mostly_cloudy_n, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
   }
-  // else if (condition == "Rain")
-  // {
-  //   display.drawBitmap(rain, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
-  // }
-  // else if (condition == "Snow")
-  // {
-  //   display.drawBitmap(snow, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
-  // }
-  // else if (condition == "Fog")
-  // {
-  //   display.drawBitmap(foggy, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
-  // }
+  else if (condition == "CLOUDY")
+  {
+    display.drawBitmap(cloudy, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  else if (
+      condition == "LIGHT_RAIN_SHOWERS" ||
+      condition == "CHANCE_OF_SHOWERS" ||
+      condition == "SCATTERED_SHOWERS" ||
+      condition == "LIGHT_RAIN")
+  {
+    display.drawBitmap(light_rain_showers, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  else if (
+      condition == "LIGHT_TO_MODERATE_RAIN" ||
+      condition == "RAIN" ||
+      condition == "MODERATE_TO_HEAVY_RAIN" ||
+      condition == "RAIN_PERIODICALLY_HEAVY")
+  {
+    display.drawBitmap(moderate_rain, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
+  else if (
+
+      condition == "HEAVY_RAIN" ||
+      condition == "RAIN_SHOWERS" ||
+      condition == "HEAVY_RAIN_SHOWERS")
+  {
+    display.drawBitmap(heavy_rain, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
   else
-    // default to clear weather icon
-    display.drawBitmap(unknown, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  {
+    display.setCursor(0, 35);
+    display.setFont(&Org_01);
+    display.print(condition);
+  }
 
   // temperature
   int temp = ceil(weather_doc["temperature"]["degrees"].as<float>());
