@@ -314,6 +314,15 @@ void render(JsonDocument &aqi_doc, JsonDocument &weather_doc, BatteryStatus &bat
   {
     display.drawBitmap(heavy_rain, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
   }
+  else if (
+      condition == "THUNDERSTORM" ||
+      condition == "THUNDERSHOWER" ||
+      condition == "LIGHT_THUNDERSTORM_RAIN" ||
+      condition == "SCATTERED_THUNDERSTORMS" ||
+      condition == "HEAVY_THUNDERSTORM")
+  {
+    display.drawBitmap(isDaytime ? thunderstorm : thunderstorm_n, 0, 25, 50, 50, GxEPD_BLACK, GxEPD::bm_invert);
+  }
   else
   {
     display.setCursor(0, 35);
